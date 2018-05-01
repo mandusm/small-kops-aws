@@ -1,0 +1,46 @@
+.Upload CF Templates to S3
+[source,bash]
+----
+aws s3 cp kops-launcher.yaml s3://YOUR_BUCKET/YOUR_PREFIX/templates/
+aws s3 cp public-vpc.yaml s3://YOUR_BUCKET/YOUR_PREFIX/templates/
+----
+
+.Deploy CF Template
+[source,bash]
+----
+aws --region YOUR_REGION cloudformation create-stack \
+--stack-name "CHOOSE_A_NAME" \
+--template-body file://deploy-kops.yaml \
+--parameters ParameterKey=KeyName,ParameterValue=YOUR_KEY_NAME \
+ParameterKey=BucketName,ParameterValue=YOUR_BUCKET \
+ParameterKey=BucketPrefix,ParameterValue=YOUR_PREFIX \
+--capabilities CAPABILITY_NAMED_IAM
+----
+
+Wait for the template to finish launching and get the ssh login details in the outputs.
+
+.Create Kops Cluster Reference
+[source,bash]
+----
+kops create cluster --name servicebroker.cluster.k8s.local --vpc ${VPCID} --zones us-west-1c,us-west-1a
+----
+
+.Create SSH Key and K8s Secret
+[source,bash]
+----
+ssh-keygen -f ~/.ssh/id_rsa -t rsa -b 4096 -C "your_email@example.com"
+kops create secret --name servicebroker.cluster.k8s.local sshpublickey admin -i ~/.ssh/id_rsa.pub
+----
+
+.Deploy Cluster
+[source,bash]
+----
+kops update cluster servicebroker.cluster.k8s.local --yes
+----
+
+.Deploy Helm
+[source,bash]
+----
+kubectl apply -f rbac.yaml
+helm init --service-account tiller
+----

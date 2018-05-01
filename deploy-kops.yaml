@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template to launch the OpenShift on AWS Lab'
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key For SSH Access
+  BucketName:
+    Type: String
+    Description: "The bucket name where the S3 Templates will be stored"
+  BucketPrefix:
+    Type: String
+    Description: "The prefix to where the templates folder is stored without trailing /"
+Resources:
+  BasicVPC:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.amazonaws.com/${BucketPrefix}/templates/public-vpc.yaml"
+      TimeoutInMinutes: 10
+  KopsDeployEnvironment:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.amazonaws.com/${BucketPrefix}/templates/kops-launcher.yaml"
+      TimeoutInMinutes: 30
+      Parameters:
+        SubnetId: !GetAtt BasicVPC.Outputs.PublicSubnet
+        KeyName: !Ref KeyName
+        VpcId: !GetAtt BasicVPC.Outputs.VPCId
+Outputs:
+  KopsSSHLogin:
+    Value: !Sub "ssh ec2-user@${KopsDeployEnvironment.Outputs.KopsInstanceHostname}"
+    Description: SSH Login String

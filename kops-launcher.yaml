@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template to launch a Cloud9 instance into an existing VPC'
+Parameters:
+  VpcId:
+    Description: VPC Into which EC2 Instance will be launched
+    Type: String
+  SubnetId:
+    Description: A publicly accessible EC2 SubnetId.
+    Type: String
+    MinLength: 7
+    ConstraintDescription: Must be a valid EC2 SubnetId, e.g subnet-xxxxxxx
+  KeyName:
+    Description: The SSH Key Required to log into the Instance
+    Type: String
+Mappings:
+  RegionMap:
+    ap-south-1:
+      HVM: "ami-b46f48db"
+    eu-west-3:
+      HVM: "ami-cae150b7"
+    eu-west-2:
+      HVM: "ami-c12dcda6"
+    eu-west-1:
+      HVM: "ami-9cbe9be5"
+    ap-northeast-3:
+      HVM: "ami-68c1cf15"
+    ap-northeast-2:
+      HVM: "ami-efaf0181"
+    ap-northeast-1:
+      HVM: "ami-28ddc154"
+    sa-east-1:
+      HVM: "ami-f09dcc9c"
+    ca-central-1:
+      HVM: "ami-2f39bf4b"
+    ap-southeast-1:
+      HVM: "ami-64260718"
+    ap-southeast-2:
+      HVM: "ami-60a26a02"
+    eu-central-1:
+      HVM: "ami-1b316af0"
+    us-east-1:
+      HVM: "ami-467ca739"
+    us-east-2:
+      HVM: "ami-976152f2"
+    us-west-1:
+      HVM: "ami-46e1f226"
+    us-west-2:
+      HVM: "ami-6b8cef13"
+Resources:
+  KopsS3ClusterStorage:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+  KopsIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: "KopsDeployResources"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: "*"
+                Resource: "*"
+  KopsInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref KopsIAMRole
+  KopsSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Security Group for Kops Deployment Instance"
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "All Traffic Out Allowed"
+          IpProtocol: -1
+          ToPort: -1
+          FromPort: -1
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "All Traffic To SSH Allowed"
+          IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+      Tags:
+        - Key: Name
+          Value: "kops-deploy-sg"
+      VpcId: !Ref VpcId
+  KopsInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            DeleteOnTermination: True
+            VolumeSize: 10
+            VolumeType: gp2
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", HVM]
+      InstanceType: t2.nano
+      IamInstanceProfile: !Ref KopsInstanceProfile
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: True
+          DeleteOnTermination: True
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref KopsSecurityGroup
+      Tags:
+        - Key: Name
+          Value: "kops-deploy-instance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          export PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/aws/bin:/home/ec2-user/.local/bin:/home/ec2-user/bin
+          echo "export KOPS_STATE_STORE=s3://${KopsS3ClusterStorage}" >> /home/ec2-user/.bash_profile
+          echo "export VPCID=${VpcId}" >> /home/ec2-user/.bash_profile
+          echo "export INSTANCE_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone/`" >> /home/ec2-user/.bash_profile
+          echo "export NODE_SIZE=${!NODE_SIZE:-t2.large}" >> /home/ec2-user/.bash_profile
+          echo "export MASTER_SIZE=${!MASTER_SIZE:-t2.large}" >> /home/ec2-user/.bash_profile
+          yum update -y
+          # Install Kops
+          wget -O kops https://github.com/kubernetes/kops/releases/download/$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)/kops-linux-amd64
+          chmod +x ./kops
+          mv ./kops /usr/local/bin/
+          # Install KubeCTL
+          wget -O kubectl https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          mv ./kubectl /usr/local/bin/kubectl
+          # Install Helm
+          wget -O /tmp/helm.tar.gz "https://storage.googleapis.com/kubernetes-helm/helm-v2.9.0-rc5-linux-amd64.tar.gz"
+          tar -xf /tmp/helm.tar.gz -C /tmp/
+          chmod +x /tmp/linux-amd64/helm
+          mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          # Install SVCAT CLI
+          curl -sLo /tmp/svcat https://download.svcat.sh/cli/latest/linux/amd64/svcat
+          chmod +x /tmp/svcat
+          mv /tmp/svcat /usr/local/bin/
+          # Upgrade AWS CLI and Pip
+          pip install --upgrade pip awscli
+Outputs:
+  KopsInstanceHostname:
+    Value: !GetAtt KopsInstance.PublicDnsName
+    Description: The Unique Environment ID.

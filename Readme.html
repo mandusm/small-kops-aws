@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=edge"><![endif]-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Asciidoctor 1.5.4">
+  <title>Untitled</title>
+  <link rel="stylesheet" href="https://asciidoclive.com/assets/asciidoctor.js/css/asciidoctor.css">
+</head>
+
+<body class="article">
+  <div id="header">
+  </div>
+  <div id="content">
+    <div class="listingblock">
+      <div class="title">Upload CF Templates to S3</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">aws s3 cp kops-launcher.yaml s3://YOUR_BUCKET/YOUR_PREFIX/templates/
+aws s3 cp public-vpc.yaml s3://YOUR_BUCKET/YOUR_PREFIX/templates/</code></pre>
+      </div>
+    </div>
+    <div class="listingblock">
+      <div class="title">Deploy CF Template</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">aws --region YOUR_REGION cloudformation create-stack \
+--stack-name "CHOOSE_A_NAME" \
+--template-body file://deploy-kops.yaml \
+--parameters ParameterKey=KeyName,ParameterValue=YOUR_KEY_NAME \
+ParameterKey=BucketName,ParameterValue=YOUR_BUCKET \
+ParameterKey=BucketPrefix,ParameterValue=YOUR_PREFIX \
+--capabilities CAPABILITY_NAMED_IAM</code></pre>
+      </div>
+    </div>
+    <div class="paragraph">
+      <p>Wait for the template to finish launching and get the ssh login details in
+        the outputs.</p>
+    </div>
+    <div class="listingblock">
+      <div class="title">Create Kops Cluster Reference</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">kops create cluster --name servicebroker.cluster.k8s.local --vpc ${VPCID} --zones us-west-1c,us-west-1a</code></pre>
+      </div>
+    </div>
+    <div class="listingblock">
+      <div class="title">Create SSH Key and K8s Secret</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">ssh-keygen -f ~/.ssh/id_rsa -t rsa -b 4096 -C "your_email@example.com"
+kops create secret --name servicebroker.cluster.k8s.local sshpublickey admin -i ~/.ssh/id_rsa.pub</code></pre>
+      </div>
+    </div>
+    <div class="listingblock">
+      <div class="title">Deploy Cluster</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">kops update cluster servicebroker.cluster.k8s.local --yes</code></pre>
+      </div>
+    </div>
+    <div class="listingblock">
+      <div class="title">Deploy Helm</div>
+      <div class="content">
+        <pre class="highlight"><code class="language-bash" data-lang="bash">kubectl apply -f rbac.yaml
+helm init --service-account tiller</code></pre>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
