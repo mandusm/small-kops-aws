@@ -1,0 +1,251 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation Sample Template VPC_with_PublicIPs_And_DNS: Sample
+  template showing how to create a VPC with DNS and Public IPs enabled. You will be
+  billed for the AWS resources used if you create a stack from this template.'
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: 192.168.0.0/28
+    Public:
+      CIDR: 192.168.0.0/28
+  RegionMap:
+    ap-south-1:
+      HVM: "ami-b46f48db"
+    eu-west-3:
+      HVM: "ami-cae150b7"
+    eu-west-2:
+      HVM: "ami-c12dcda6"
+    eu-west-1:
+      HVM: "ami-9cbe9be5"
+    ap-northeast-3:
+      HVM: "ami-68c1cf15"
+    ap-northeast-2:
+      HVM: "ami-efaf0181"
+    ap-northeast-1:
+      HVM: "ami-28ddc154"
+    sa-east-1:
+      HVM: "ami-f09dcc9c"
+    ca-central-1:
+      HVM: "ami-2f39bf4b"
+    ap-southeast-1:
+      HVM: "ami-64260718"
+    ap-southeast-2:
+      HVM: "ami-60a26a02"
+    eu-central-1:
+      HVM: "ami-1b316af0"
+    us-east-1:
+      HVM: "ami-467ca739"
+    us-east-2:
+      HVM: "ami-976152f2"
+    us-west-1:
+      HVM: "ami-46e1f226"
+    us-west-2:
+      HVM: "ami-7b6d1303"
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - VPC
+        - CIDR
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Public
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - Public
+        - CIDR
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Public
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Public
+  GatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Public
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayToInternet
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet
+      RouteTableId:
+        Ref: PublicRouteTable
+  PublicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Public
+  InboundPublicNetworkAclEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+      RuleNumber: '100'
+      Protocol: -1
+      RuleAction: allow
+      Egress: 'false'
+      CidrBlock: 0.0.0.0/0
+  OutboundPublicNetworkAclEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+      RuleNumber: '100'
+      Protocol: -1
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+  PublicSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+  KopsIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: "KopsDeployResources"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: "*"
+                Resource: "*"
+  KopsInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref KopsIAMRole
+  KopsSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Security Group for Kops Deployment Instance"
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "All Traffic Out Allowed"
+          IpProtocol: -1
+          ToPort: -1
+          FromPort: -1
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "All Traffic To SSH Allowed"
+          IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+      Tags:
+        - Key: Name
+          Value: "kops-deploy-sg"
+      VpcId: !Ref VPC
+  KopsInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            DeleteOnTermination: True
+            VolumeSize: 100
+            VolumeType: gp2
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", HVM]
+      InstanceType: t2.large
+      IamInstanceProfile: !Ref KopsInstanceProfile
+      KeyName: "mombergm_amazon"
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: True
+          DeleteOnTermination: True
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref KopsSecurityGroup
+      Tags:
+        - Key: Name
+          Value: "kops-deploy-instance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          export PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/aws/bin:/home/ec2-user/.local/bin:/home/ec2-user/bin
+          echo "export VPCID=${VPC}" >> /home/ec2-user/.bash_profile
+          export PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          cd /home/centos/awssb
+          oc cluster up --public-hostname=${!PUBLIC_IP}.nip.io --logging=true --metrics=true --service-catalog=true --use-existing-config=false
+          sed -i -e 's/AWS_CLOUDFORMATION_ROLE/arn:aws:iam::911178247648:role\/aws-servicebroker-cfn-deploy-role/; s/AWS_REGION/${AWS::Region}/; s/AWS_VPC/${VPC}/' deploy-awsservicebroker.template.yaml
+          ./deploy_aws_broker.sh
+Outputs:
+  VPCId:
+    Description: VPCId of the newly created VPC
+    Value:
+      Ref: VPC
+  PublicSubnet:
+    Description: SubnetId of the public subnet
+    Value:
+      Ref: PublicSubnet
